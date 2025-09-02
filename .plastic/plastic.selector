@@ -1,0 +1,4 @@
+repository "MageRunnerTest/MageRunner@18968307879995@cloud"
+  path "/"
+    br "/main"
+    co "/main"
