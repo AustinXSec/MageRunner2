@@ -10,7 +10,21 @@ public class FlyingEye : MonoBehaviour, IDamageable
 
     [Header("Movement")]
     public float moveSpeed = 3f;
+    public float verticalSpeed = 2f;
     public float stoppingDistance = 0.5f;
+
+    [Header("Obstacle Detection")]
+    public Transform frontCheck;
+    public float frontCheckDistance = 0.5f;
+    public float obstacleCheckHeight = 1.5f;
+    public int obstacleCheckSteps = 3;
+    public LayerMask obstacleLayer;
+
+    [Header("Attack")]
+    public float attackRange = 1f;
+    public int attackDamage = 20;
+    public float attackCooldown = 1f;
+    private bool canAttack = true;
 
     [Header("Knockback")]
     public float knockbackForce = 5f;
@@ -18,24 +32,24 @@ public class FlyingEye : MonoBehaviour, IDamageable
 
     [Header("References")]
     public Transform player;
-    private Rigidbody2D rb;
-    private Collider2D col;
     public Animator animator;
 
-    public bool isDead { get; private set; } = false;
-
-    private Vector2 movement;
+    private Rigidbody2D rb;
+    private Collider2D col;
     private Vector3 originalScale;
+    private Vector2 movement;
     private bool isKnockedBack = false;
+    public bool isDead { get; private set; } = false;
 
     void Start()
     {
         currentHealth = maxHealth;
-
         rb = GetComponent<Rigidbody2D>();
         col = GetComponent<Collider2D>();
-
         originalScale = transform.localScale;
+
+        rb.gravityScale = 0f;
+        col.isTrigger = false;
 
         if (player == null)
             player = GameObject.FindGameObjectWithTag("Player")?.transform;
@@ -48,14 +62,17 @@ public class FlyingEye : MonoBehaviour, IDamageable
         Vector2 direction = (player.position - transform.position);
         float distance = direction.magnitude;
 
-        // Move toward player if farther than stopping distance
         movement = (distance > stoppingDistance) ? direction.normalized : Vector2.zero;
 
-        // Flip sprite to face player
         if (direction.x > 0)
             transform.localScale = new Vector3(Mathf.Abs(originalScale.x), originalScale.y, originalScale.z);
         else if (direction.x < 0)
             transform.localScale = new Vector3(-Mathf.Abs(originalScale.x), originalScale.y, originalScale.z);
+
+        ObstacleDetection();
+
+        if (distance <= attackRange && canAttack)
+            StartCoroutine(PerformAttack());
     }
 
     void FixedUpdate()
@@ -63,7 +80,62 @@ public class FlyingEye : MonoBehaviour, IDamageable
         if (isDead) return;
 
         if (!isKnockedBack)
-            rb.velocity = movement * moveSpeed;
+        {
+            Vector2 targetVelocity = new Vector2(movement.x * moveSpeed, movement.y * verticalSpeed);
+            rb.velocity = Vector2.Lerp(rb.velocity, targetVelocity, 0.2f);
+        }
+    }
+
+    private void ObstacleDetection()
+    {
+        if (frontCheck == null) return;
+
+        float stepHeight = obstacleCheckHeight / (obstacleCheckSteps - 1);
+        bool pathClear = false;
+
+        for (int i = 0; i < obstacleCheckSteps; i++)
+        {
+            Vector2 rayOrigin = frontCheck.position + Vector3.up * (i * stepHeight);
+            Vector2 rayDir = new Vector2(Mathf.Sign(transform.localScale.x), 0f);
+            RaycastHit2D hit = Physics2D.Raycast(rayOrigin, rayDir, frontCheckDistance, obstacleLayer);
+
+            if (hit.collider == null)
+            {
+                movement.y = Mathf.Lerp(movement.y, verticalSpeed * (i * stepHeight / obstacleCheckHeight), 0.2f);
+                pathClear = true;
+                break;
+            }
+        }
+
+        if (!pathClear)
+        {
+            movement.y = verticalSpeed;
+            movement.x = Mathf.Sign(transform.localScale.x) * moveSpeed;
+        }
+
+        if (movement.y > 0 && pathClear)
+            movement.y = Mathf.Lerp(movement.y, 0f, 0.05f);
+    }
+
+    private IEnumerator PerformAttack()
+    {
+        if (player == null) yield break;
+
+        canAttack = false;
+        animator?.SetTrigger("Attack");
+
+        yield return new WaitForSeconds(0.3f);
+
+        float distanceToPlayer = Vector2.Distance(transform.position, player.position);
+        if (distanceToPlayer <= attackRange)
+        {
+            IDamageable damageable = player.GetComponent<IDamageable>();
+            if (damageable != null)
+                damageable.TakeDamage(attackDamage, transform);
+        }
+
+        yield return new WaitForSeconds(attackCooldown);
+        canAttack = true;
     }
 
     public void TakeDamage(int damage, Transform attacker = null)
@@ -71,7 +143,7 @@ public class FlyingEye : MonoBehaviour, IDamageable
         if (isDead) return;
 
         currentHealth -= damage;
-        animator.SetTrigger("Hurt");
+        animator?.SetTrigger("Hurt");
 
         if (attacker != null)
         {
@@ -80,15 +152,12 @@ public class FlyingEye : MonoBehaviour, IDamageable
         }
 
         if (currentHealth <= 0)
-        {
             Die();
-        }
     }
 
     IEnumerator ApplyKnockback(Vector2 direction)
     {
         isKnockedBack = true;
-
         float timer = 0f;
         while (timer < knockbackDuration)
         {
@@ -96,30 +165,41 @@ public class FlyingEye : MonoBehaviour, IDamageable
             timer += Time.deltaTime;
             yield return null;
         }
-
         isKnockedBack = false;
     }
 
-    void Die()
+    private void Die()
     {
         if (isDead) return;
 
         isDead = true;
+        animator?.SetBool("isDead", true);
 
-        animator.SetBool("isDead", true);
+        rb.velocity = Vector2.zero;
+        rb.gravityScale = 1f;
+        rb.constraints = RigidbodyConstraints2D.FreezeRotation;
+        col.isTrigger = true;
+        movement = Vector2.zero;
+    }
 
-        if (rb != null)
+    void OnDrawGizmosSelected()
+    {
+        if (frontCheck != null)
         {
-            rb.velocity = Vector2.zero;
-            rb.gravityScale = 1f;       // enable gravity so it falls
-            rb.constraints = RigidbodyConstraints2D.None; // allow full movement
+            Gizmos.color = Color.red;
+            float stepHeight = obstacleCheckHeight / (obstacleCheckSteps - 1);
+            for (int i = 0; i < obstacleCheckSteps; i++)
+            {
+                Vector2 origin = frontCheck.position + Vector3.up * (i * stepHeight);
+                Vector2 dir = new Vector2(Mathf.Sign(transform.localScale.x), 0f) * frontCheckDistance;
+                Gizmos.DrawLine(origin, origin + dir);
+            }
         }
 
-        if (col != null)
+        if (player != null)
         {
-            col.isTrigger = true;       // fall through all colliders
+            Gizmos.color = Color.yellow;
+            Gizmos.DrawWireSphere(transform.position, attackRange);
         }
-
-        this.enabled = false;           // stop AI
     }
 }

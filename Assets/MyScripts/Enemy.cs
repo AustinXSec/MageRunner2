@@ -1,21 +1,31 @@
 using System.Collections;
 using UnityEngine;
 
+[RequireComponent(typeof(Rigidbody2D))]
 public class Enemy : MonoBehaviour, IDamageable
 {
     public Animator animator;
 
     [Header("Stats")]
     public int maxHealth = 100;
-    private int currentHealth;
+    public int currentHealth;
+
+    [Header("Movement")]
+    public float moveSpeed = 2f;
 
     [Header("Knockback")]
     public float knockbackForce = 5f;
     public float knockbackDuration = 0.2f;
 
+    [Header("Attack")]
+    public float attackRange = 1f;
+    public int attackDamage = 20;
+    public float attackCooldown = 1f;
+    private float lastAttackTime = 0f;
+    public Transform player;
+
     private Rigidbody2D rb;
     private Collider2D col;
-    private Collider2D[] groundColliders; // to ignore collisions
 
     public bool isDead { get; private set; } = false;
 
@@ -24,6 +34,40 @@ public class Enemy : MonoBehaviour, IDamageable
         currentHealth = maxHealth;
         rb = GetComponent<Rigidbody2D>();
         col = GetComponent<Collider2D>();
+
+        rb.gravityScale = 1f;
+        col.isTrigger = false;
+    }
+
+    void Update()
+    {
+        if (isDead) return;
+
+        if (player != null)
+        {
+            Vector2 direction = player.position - transform.position;
+            transform.localScale = new Vector3(Mathf.Sign(direction.x) * Mathf.Abs(transform.localScale.x), transform.localScale.y, transform.localScale.z);
+
+            float distanceToPlayer = Vector2.Distance(transform.position, player.position);
+            if (distanceToPlayer <= attackRange && Time.time >= lastAttackTime)
+            {
+                Attack();
+                lastAttackTime = Time.time + attackCooldown;
+            }
+        }
+    }
+
+    void Attack()
+    {
+        animator.SetTrigger("Attack");
+
+        Collider2D[] hitPlayers = Physics2D.OverlapCircleAll(transform.position, attackRange, LayerMask.GetMask("Default"));
+        foreach (Collider2D playerCollider in hitPlayers)
+        {
+            IDamageable damageable = playerCollider.GetComponent<IDamageable>();
+            if (damageable != null)
+                damageable.TakeDamage(attackDamage, transform);
+        }
     }
 
     public void TakeDamage(int damage, Transform attacker = null)
@@ -40,9 +84,7 @@ public class Enemy : MonoBehaviour, IDamageable
         }
 
         if (currentHealth <= 0)
-        {
             Die();
-        }
     }
 
     IEnumerator ApplyKnockback(Vector2 direction)
@@ -66,18 +108,18 @@ public class Enemy : MonoBehaviour, IDamageable
 
         if (rb != null)
         {
-            rb.velocity = Vector2.zero;       // stop horizontal movement
-            rb.gravityScale = 1f;             // keep falling down
-            rb.constraints = RigidbodyConstraints2D.None; // allow full movement
+            rb.velocity = Vector2.zero;
+            rb.gravityScale = 1f;
+            rb.constraints = RigidbodyConstraints2D.FreezeRotation;
         }
 
         if (col != null)
-        {
-            // Make the enemy a trigger so it falls through everything
             col.isTrigger = true;
-        }
+    }
 
-        // Optionally disable AI scripts (like Shroomy.cs) so Update() stops
-        this.enabled = false;
+    void OnDrawGizmosSelected()
+    {
+        Gizmos.color = Color.red;
+        Gizmos.DrawWireSphere(transform.position, attackRange);
     }
 }

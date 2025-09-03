@@ -32,37 +32,32 @@ public class Shroomy : MonoBehaviour
 
     void Update()
     {
-        // Stop AI movement if dead, but allow gravity to fall
         if (enemyScript != null && enemyScript.isDead)
             return;
 
-        // Check if grounded
+        PlayerHealth playerHealth = player.GetComponent<PlayerHealth>();
+        if (playerHealth != null && playerHealth.isDead)
+        {
+            rb.velocity = Vector2.zero;
+            rb.constraints = RigidbodyConstraints2D.FreezeAll;
+            if (animator != null)
+                animator.ResetTrigger("Attack");
+            return;
+        }
+
         isGrounded = Physics2D.OverlapCircle(groundCheck.position, groundCheckRadius, groundLayer);
 
-        // Follow player horizontally
         Vector2 direction = player.position - transform.position;
         rb.velocity = new Vector2(Mathf.Sign(direction.x) * moveSpeed, rb.velocity.y);
 
-        // Flip sprite correctly
         if (direction.x > 0)
             transform.localScale = new Vector3(Mathf.Abs(originalScale.x), originalScale.y, originalScale.z);
         else
             transform.localScale = new Vector3(-Mathf.Abs(originalScale.x), originalScale.y, originalScale.z);
 
-        // Obstacle detection and jump
         RaycastHit2D hit = Physics2D.Raycast(frontCheck.position, Vector2.right * Mathf.Sign(transform.localScale.x), frontCheckDistance, groundLayer);
         if (hit.collider != null && isGrounded)
-        {
             rb.velocity = new Vector2(rb.velocity.x, jumpForce);
-        }
-
-        // Update animator
-        if (animator != null)
-        {
-            animator.SetFloat("Speed", Mathf.Abs(rb.velocity.x));
-            animator.SetBool("IsGrounded", isGrounded);
-            animator.SetFloat("VerticalVelocity", rb.velocity.y);
-        }
     }
 
     void OnDrawGizmosSelected()

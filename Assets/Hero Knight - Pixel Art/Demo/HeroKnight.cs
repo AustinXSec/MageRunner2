@@ -24,17 +24,31 @@ public class HeroKnight : MonoBehaviour
     private float m_rollCurrentTime;
     private float jumpStartY;
 
+    private int originalLayer; // For roll/dodge layer
+
     void Start()
     {
         m_animator = GetComponent<Animator>();
         m_body2d = GetComponent<Rigidbody2D>();
         m_groundSensor = transform.Find("GroundSensor").GetComponent<Sensor_HeroKnight>();
+        originalLayer = gameObject.layer; // Save the original player layer
     }
 
     void Update()
     {
-        if (m_rolling) m_rollCurrentTime += Time.deltaTime;
-        if (m_rollCurrentTime > m_rollDuration) m_rolling = false;
+        // Update roll timer
+        if (m_rolling)
+        {
+            m_rollCurrentTime += Time.deltaTime;
+            m_body2d.velocity = new Vector2(m_facingDirection * m_rollForce, m_body2d.velocity.y);
+
+            // End roll
+            if (m_rollCurrentTime > m_rollDuration)
+            {
+                m_rolling = false;
+                gameObject.layer = originalLayer; // Restore collisions
+            }
+        }
 
         // Ground detection
         if (!m_grounded && m_groundSensor.State())
@@ -83,11 +97,12 @@ public class HeroKnight : MonoBehaviour
         {
             m_rolling = true;
             m_rollCurrentTime = 0.0f;
+
+            // Change layer to ignore enemies during roll
+            gameObject.layer = LayerMask.NameToLayer("PlayerRolling");
+
             m_animator.SetTrigger("Roll");
         }
-
-        if (m_rolling)
-            m_body2d.velocity = new Vector2(m_facingDirection * m_rollForce, m_body2d.velocity.y);
 
         // Jump
         if (Input.GetKeyDown("space") && m_grounded && !m_rolling)
